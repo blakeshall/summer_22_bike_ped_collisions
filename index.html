@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Summer 2022 Lexington Bike/Ped Collisions</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.0/dist/leaflet.css"
+    crossorigin=""/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+  </head>
+  <body>
+    <style>
+      #map { height: 1000px; }
+      .tag:not(body).is-success{
+        background-color:#8DD35F;
+      }
+      .tag:not(body).is-warning{
+        background-color:#FFDD55;
+      }
+      .tag:not(body).is-danger{
+        background-color:#FF5555;
+      }
+    </style>
+
+    <section class="section">
+      <div class="container">
+        <h1 class="title">
+          Summer 2022 Lexington Bike & Pedestrian Collisions
+        </h1>
+        <div id="map"></div>
+      </div>
+    </section>
+    <div class="container has-text-centered">
+      <div class="columns">
+        <div class="column">
+          <h4 class="title is-4"><i class="fas fa-car-burst pr-1" aria-hidden="true"></i>Type</h4>
+          <div class="field">
+            <div class="control">
+              <label class="checkbox" for="bike">
+                <input type="checkbox" id="bike" class="type" checked>
+                <i class="fas fa-solid fa-bicycle"></i>
+                Bike
+              </label>
+            </div>
+          </div>
+          <div class="field">
+            <div class="control">
+              <label class="checkbox" for="pedestrian">
+                <input type="checkbox" id="pedestrian" class="type" checked>
+                <i class="fas fa-solid fa-person-walking"></i>
+                Pedestrian
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="column">
+          <h4 class="title is-4"><i class="fas fa-truck-medical pr-1" aria-hidden="true"></i>Injury/Fatality</h4>
+          <div class="field">
+            <div class="control">
+              <label class="checkbox" for="no-injury">
+                <input type="checkbox" id="no-injury" class="injuries" checked>
+                <span class="tag is-success">No Injury</span>
+              </label>
+            </div>
+          </div>
+          <div class="field">
+            <div class="control">
+              <label class="checkbox" for="injury">
+                <input type="checkbox" id="injury" class="injuries" checked>
+                <span class="tag is-warning">Injury</span>
+              </label>
+            </div>
+          </div>
+          <div class="field">
+            <div class="control">
+              <label class="checkbox" for="fatality">
+                <input type="checkbox" id="fatality" class="injuries" checked>
+                <span class="tag is-danger">Fatality</span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <section>
+      <div class="container">
+        <table class="table">
+          <thead id="table-header">
+            <tr>
+              <th>
+                Incident ID
+              </th>
+              <th>
+                Roadway
+              </th>
+              <th>
+                Date
+              </th>
+              <th>
+                Time
+              </th>
+              <th>
+                Number Killed
+              </th>
+              <th>
+                Number Injured
+              </th>
+              <th>
+                Weather
+              </th>
+              <th>
+                Road Conditions
+              </th>
+              <th>
+                Type of Collision
+              </th>
+              <th>
+                Hit and Run
+              </th>
+              <th>
+                Light Condition
+              </th>
+            </tr>
+          </thead>
+        </table>
+      </div>
+    </section>
+  <script src="https://unpkg.com/leaflet@1.9.0/dist/leaflet.js"
+  crossorigin=""></script>
+  <script src="https://code.jquery.com/jquery-3.6.1.min.js" integrity="sha256-o88AwQnZB+VDvE9tvIXrMQaPlFFSUTR+nldQm1LuPXQ=" crossorigin="anonymous"></script>
+  <script src="jquery.csv.min.js"></script>
+  <script src="leaflet-subgroup.js"></script>
+  <script src="https://kit.fontawesome.com/1b0640f921.js" crossorigin="anonymous"></script>
+  <script>
+    var CrashIcon = L.Icon.extend({
+      options: {
+        iconSize:     [52, 52],
+        iconAnchor:   [26, 51],
+        popupAnchor:  [0, -52]
+      }
+    });
+
+    var bikeInjuryIcon = new CrashIcon({iconUrl: 'bike_injury_icon.png'})
+    var pedInjuryIcon = new CrashIcon({iconUrl: 'ped_injury_icon.png'})
+    var pedFatalityIcon = new CrashIcon({iconUrl: 'ped_fatality_icon.png'})
+    var bikeFatalityIcon = new CrashIcon({iconUrl: 'bike_fatality_icon.png'})
+    var bikeCollisionIcon = new CrashIcon({iconUrl: 'bike_collision_icon.png'})
+    var pedCollisionIcon = new CrashIcon({iconUrl: 'ped_collision_icon.png'})
+
+
+    var isIncidentsLoaded = false;
+    var incidentsData;
+    var isPersonsLoaded = false;
+
+    var incidents;
+    var hitAndRuns;
+    var persons;
+    var checkboxStates = {
+            type: [],
+            injuries: []
+        }
+    updateCheckboxStates();
+
+    $.ajax({
+      url: 'crash_reports/incidents.geojson',
+      dataType: 'json',
+    }).done(incidentsLoaded);
+
+    $.ajax({
+      url: 'crash_reports/Person.csv',
+      dataType: 'text',
+    }).done(personsLoaded);
+
+    function incidentsLoaded(data){
+      isIncidentsLoaded = true;
+      incidentsData = data;
+      incidents = L.geoJSON(incidentsData,{
+        filter: (feature) => {
+          var type;
+          if (feature.properties.DirAnalysisCode === "COLLISION WITH BICYCLE IN INTERSECTION" || feature.properties.DirAnalysisCode === "COLLISION WITH BICYCLIST NON INTERSECTION"){
+            type = "bike";
+          } else {
+            type = "pedestrian";
+          }
+          var injury;
+          if (parseInt(feature.properties.NumberKilled) > 0){
+            injury = 'fatality';
+          } else if (parseInt(feature.properties.NumberInjured) > 0){
+            injury = 'injury';
+          } else {
+            injury = 'no-injury'
+          }
+
+          return checkboxStates.type.includes(type) && checkboxStates.injuries.includes(injury) //only true if both are true
+        },
+        pointToLayer: pointToLayer,
+        onEachFeature: onEachFeature
+      });
+
+      hitAndRuns = L.geoJSON(incidentsData,{
+        filter: (feature) => {
+          var type;
+          if (feature.properties.DirAnalysisCode === "COLLISION WITH BICYCLE IN INTERSECTION" || feature.properties.DirAnalysisCode === "COLLISION WITH BICYCLIST NON INTERSECTION"){
+            type = "bike";
+          } else {
+            type = "pedestrian";
+          }
+          var injury;
+          if (parseInt(feature.properties.NumberKilled) > 0){
+            injury = 'fatality';
+          } else if (parseInt(feature.properties.NumberInjured) > 0){
+            injury = 'injury';
+          } else {
+            injury = 'no-injury'
+          }
+
+          return checkboxStates.type.includes(type) && checkboxStates.injuries.includes(injury) && (feature.properties.HitandRun === 'True')
+        },
+        pointToLayer: pointToLayer,
+        onEachFeature: onEachFeature
+      });
+
+      populateTable();
+      successFunction();
+    }
+
+    function personsLoaded(data){
+      isPersonsLoaded = true;
+      persons = $.csv.toObjects(data)
+      successFunction();
+    }
+
+    var map;
+
+    function successFunction(){
+      if (!isIncidentsLoaded || !isPersonsLoaded) {
+        return;
+      }     
+      var osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '© OpenStreetMap'
+      });
+      map = L.map('map', {
+        center: [38.046213, -84.497057],
+        zoom: 12,
+        layers: [osm, incidents]
+      });
+
+      var baseMaps = {
+        'All Incidents': incidents,
+        'Hit and Runs': hitAndRuns
+      }
+
+      var layerControl = L.control.layers(baseMaps, {}, { 'collapsed': false}).addTo(map);
+    }
+
+    function onEachFeature(feature, layer){      
+      layer.bindPopup(formatPopup(feature));
+    }
+
+    function pointToLayer(feature, latlng){
+      var icon;
+      switch (feature.properties.DirAnalysisCode) {
+        case "COLLISION WITH PEDESTRIAN IN INTERSECTION":
+          if (parseInt(feature.properties.NumberKilled) > 0){
+            icon = pedFatalityIcon;
+          } else if (parseInt(feature.properties.NumberInjured) > 0){
+            icon = pedInjuryIcon;
+          } else {
+            icon = pedCollisionIcon;
+          }
+          break;
+        case "COLLISION WITH PEDESTRIAN NON - INTERSECTION":
+          if (parseInt(feature.properties.NumberKilled) > 0){
+            icon = pedFatalityIcon;
+          } else if (parseInt(feature.properties.NumberInjured) > 0){
+            icon = pedInjuryIcon;
+          } else {
+            icon = pedCollisionIcon;
+          }
+          break;
+        case "COLLISION WITH BICYCLE IN INTERSECTION":
+          if (parseInt(feature.properties.NumberKilled) > 0){
+            icon = bikeFatalityIcon;
+          } else if (parseInt(feature.properties.NumberInjured) > 0){
+            icon = bikeInjuryIcon;
+          } else {
+            icon = bikeCollisionIcon;
+          }
+          break;
+        case "COLLISION WITH BICYCLIST NON INTERSECTION":
+          if (parseInt(feature.properties.NumberKilled) > 0){
+            icon = bikeFatalityIcon;
+          } else if (parseInt(feature.properties.NumberInjured) > 0){
+            icon = bikeInjuryIcon;
+          } else {
+            icon = bikeCollisionIcon;
+          }
+          break;
+        default:
+          icon = bikeInjuryIcon;
+          break;
+      }
+      return L.marker(latlng, { icon: icon })
+    }
+
+    for (let input of document.querySelectorAll('input')) {
+      //Listen to 'change' event of all inputs
+      input.onchange = (e) => {
+        incidents.clearLayers()
+        hitAndRuns.clearLayers()
+        updateCheckboxStates()
+        incidents.addData(incidentsData)
+        hitAndRuns.addData(incidentsData)
+      }
+    }
+
+    function updateCheckboxStates() {
+      checkboxStates = {
+        type: [],
+        injuries: []
+      }
+      for (let input of document.querySelectorAll('input')) {
+        if(input.checked) {
+          switch (input.className) {
+            case 'type': checkboxStates.type.push(input.id); break
+            case 'injuries': checkboxStates.injuries.push(input.id); break
+          }
+        }
+      }
+    }
+
+    function populateTable(){
+      incidentsData.features.forEach((incident) => {
+        $('#table-header').after(
+          '<tr>' +
+          '<td>' + incident.properties.IncidentID+ '</td>' +
+          '<td>' + formatRoadName(incident) + '</td>' +
+          '<td>' + incident.properties.CollisionDate + '</td>' +
+          '<td>' + collisionTime(incident) + '</td>' +
+          '<td>' + incident.properties.NumberKilled + '</td>' +
+          '<td>' + incident.properties.NumberInjured + '</td>' +
+          '<td>' + incident.properties.Weather + '</td>' +
+          '<td>' + incident.properties.RdwyConditionCode + '</td>' +
+          '<td>' + incident.properties.DirAnalysisCode + '</td>' +
+          '<td>' + incident.properties.HitandRun + '</td>' +
+          '<td>' + incident.properties.LightCondition + '</td>' +
+          '</tr>'
+        )
+      })
+    }
+
+    function collisionTime(incident){
+      var time = parseInt(incident.properties.CollisionTime);
+      var ampm = 'am'
+      var hour;
+      var min;
+      if (time){
+        if (time > 1200){
+          time = time - 1200;
+          ampm = 'pm'
+        }
+        hour = parseInt(time / 100);
+        if (hour == 0){
+          hour = 12;
+        }
+        min = ('00' + (time % 100)).slice(-2);
+        return hour + ':' + min + ampm;
+      } else {
+        return '?'
+      }
+    }
+
+    function formatRoadName(incident){
+      return [incident.properties.StreetDir, incident.properties.RoadwayName, incident.properties.StreetSfx].join(' ')
+    }
+
+    function formatPopup(incident){
+      return 'Incident ID: <b>' + incident.properties.IncidentID +'</b><br />' +
+        'Date: ' + incident.properties.CollisionDate + '<br />Time: ' + collisionTime(incident) +
+        '<br />Number Killed: ' + incident.properties.NumberKilled + '<br />Number Injured: ' +
+        incident.properties.NumberInjured
+    }
+
+  </script>
+  
+  </body>
+  <footer class="footer">
+    <div class="content has-text-centered">
+      <p>
+        Made by <a href="https://twitter.com/blakeshall">Blake Hall</a>. Collision Data from <a href="http://crashinformationky.org/">CrashInformationKY.org</a>.
+        Map icons:
+        <a href="https://www.flaticon.com/free-icons/pedestrian" title="pedestrian icons">Pedestrian icons created by Stockio - Flaticon</a>,
+        <a href="https://www.flaticon.com/free-icons/bike" title="bike icons">Bike icons created by Freepik - Flaticon</a>
+    </div>
+  </footer>
+</html>
